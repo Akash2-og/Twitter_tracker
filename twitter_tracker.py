@@ -1,50 +1,51 @@
 import requests
 import time
+import os
 
-# Your Twitter API Bearer Token
-TWITTER_BEARER_TOKEN = "AAAAAAAAAAAAAAAAAAAAADXn0AEAAAAARNEdqjtophCXMf0oHPUsac8e1HQ%3Dg15V4Appps6D9cjbGyw4utu9TS9cfwRgMe0lWBCmXnbKz7VtVx"
+# Your Twitter API Bearer Token (Move to environment variable for security)
+TWITTER_BEARER_TOKEN = os.getenv("AAAAAAAAAAAAAAAAAAAAADXn0AEAAAAARNEdqjtophCXMf0oHPUsac8e1HQ%3Dg15V4Appps6D9cjbGyw4utu9TS9cfwRgMe0lWBCmXnbKz7VtVx")
 
-# Your Discord Webhook URL
-DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/1354951442850382108/t92OOdADNthSiXAShIdi-o6y4EaZqgj4dTf9OBhIiW3mDb4MVcfmjuApndovf8-tF4Cn"
+# Your Discord Webhook URL (Move to environment variable for security)
+DISCORD_WEBHOOK_URL = os.getenv("https://discord.com/api/webhooks/1354951442850382108/t92OOdADNthSiXAShIdi-o6y4EaZqgj4dTf9OBhIiW3mDb4MVcfmjuApndovf8-tF4Cn")
 
 # List of target usernames to track
 TARGET_USERNAMES = ["Kawshik56", "elonmusk"]
 
-# Function to get the latest tweets for each target user
-def get_latest_tweet(username):
-    url = f"https://api.twitter.com/2/tweets?ids={username}"  # Adjust URL if needed
-    headers = {
-        "Authorization": f"Bearer {TWITTER_BEARER_TOKEN}"
-    }
-    response = requests.get(url, headers=headers)
-
-    if response.status_code == 429:
-        print(f"Rate limit reached. Waiting before retrying...")
-        reset_time = int(response.headers.get('x-rate-limit-reset'))  # Get reset time from headers
-        sleep_time = reset_time - int(time.time())  # Calculate how long to sleep before retry
-        if sleep_time > 0:
-            time.sleep(sleep_time)  # Sleep until the rate limit is reset
-        return None
-
-    if response.status_code == 200:
-        return response.json()  # Returns tweet data
-    else:
-        print(f"Failed to fetch tweets for {username}: {response.status_code}")
-        return None
-
-# Function to get replies to a tweet
-def get_replies(tweet_id):
-    url = f"https://api.twitter.com/2/tweets/search/recent?query=conversation_id:{tweet_id}"  # Search replies based on conversation ID
-    headers = {
-        "Authorization": f"Bearer {TWITTER_BEARER_TOKEN}"
-    }
+# Function to get user ID from username
+def get_user_id(username):
+    url = f"https://api.twitter.com/2/users/by/username/{username}"
+    headers = {"Authorization": f"Bearer {TWITTER_BEARER_TOKEN}"}
     response = requests.get(url, headers=headers)
 
     if response.status_code == 200:
-        return response.json()  # Returns reply data
+        return response.json()["data"]["id"]
+    elif response.status_code == 429:
+        handle_rate_limit(response)
     else:
-        print(f"Failed to fetch replies for tweet {tweet_id}: {response.status_code}")
-        return []
+        print(f"Failed to fetch user ID for {username}: {response.status_code}, {response.text}")
+        return None
+
+# Function to get the latest tweets for a user ID
+def get_latest_tweets(user_id):
+    url = f"https://api.twitter.com/2/users/{user_id}/tweets"
+    headers = {"Authorization": f"Bearer {TWITTER_BEARER_TOKEN}"}
+    response = requests.get(url, headers=headers)
+
+    if response.status_code == 200:
+        return response.json()
+    elif response.status_code == 429:
+        handle_rate_limit(response)
+    else:
+        print(f"Failed to fetch tweets for {user_id}: {response.status_code}, {response.text}")
+        return None
+
+# Function to check rate limit and wait before retrying
+def handle_rate_limit(response):
+    print("Rate limit reached. Waiting before retrying...")
+    reset_time = int(response.headers.get("x-rate-limit-reset", time.time()))  # Get reset time
+    sleep_time = max(reset_time - int(time.time()), 60)  # Wait time (default 60s if unknown)
+    print(f"Sleeping for {sleep_time} seconds...")
+    time.sleep(sleep_time)
 
 # Function to send a message to Discord
 def send_to_discord(message):
@@ -54,30 +55,26 @@ def send_to_discord(message):
     if response.status_code == 204:
         print("Successfully sent message to Discord.")
     else:
-        print(f"Failed to send message to Discord: {response.status_code}")
+        print(f"Failed to send message to Discord: {response.status_code}, {response.text}")
 
 # Function to track tweets from multiple accounts
 def track_tweets():
     for username in TARGET_USERNAMES:
-        tweet_data = get_latest_tweet(username)
-        
-        if tweet_data:
-            # Get the text of the latest tweet (adjust according to your response data structure)
-            tweet_text = tweet_data['data'][0]['text']
-            tweet_id = tweet_data['data'][0]['id']  # Get tweet ID to track replies
-            message = f"New tweet from {username}: {tweet_text}"
-            send_to_discord(message)
-            
-            # Now fetch replies to this tweet
-            replies = get_replies(tweet_id)
-            for reply in replies.get('data', []):
-                reply_text = reply['text']
-                reply_user = reply['author_id']  # Adjust as needed to get the username
-                reply_message = f"Reply from {reply_user}: {reply_text}"
-                send_to_discord(reply_message)
+        user_id = get_user_id(username)
+        if not user_id:
+            continue
 
-# Main loop to track tweets continuously (run every 30 seconds)
+        tweet_data = get_latest_tweets(user_id)
+        if tweet_data and "data" in tweet_data:
+            for tweet in tweet_data["data"]:
+                tweet_text = tweet["text"]
+                tweet_id = tweet["id"]
+                message = f"New tweet from {username}: {tweet_text}\nLink: https://twitter.com/{username}/status/{tweet_id}"
+                send_to_discord(message)
+
+# Main loop to track tweets every 5 minutes
 if __name__ == "__main__":
     while True:
         track_tweets()
-        time.sleep(30)  # Wait for 30 seconds before checking again
+        print("Waiting 5 minutes before checking again...")
+        time.sleep(300)  # Wait for 5 minutes
