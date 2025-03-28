@@ -23,29 +23,32 @@ def get_user_id(username):
     elif response.status_code == 429:
         handle_rate_limit(response)
     else:
-        print(f"Failed to fetch user ID for {username}: {response.status_code}, {response.text}")
+        print(f"❌ Failed to fetch user ID for {username}: {response.status_code}, {response.text}")
         return None
 
 # Function to get latest tweets for a user ID
 def get_latest_tweets(user_id):
-    url = f"https://api.twitter.com/2/users/{user_id}/tweets"
+    url = f"https://api.twitter.com/2/users/{user_id}/tweets?tweet.fields=created_at"
     headers = {"Authorization": f"Bearer {TWITTER_BEARER_TOKEN}"}
     response = requests.get(url, headers=headers)
+
+    print(f"Response Code: {response.status_code}")
+    print(f"Response Body: {response.text}")  # Show full error details
 
     if response.status_code == 200:
         return response.json()
     elif response.status_code == 429:
         handle_rate_limit(response)
     else:
-        print(f"Failed to fetch tweets for {user_id}: {response.status_code}, {response.text}")
+        print(f"❌ Twitter API Error for {user_id}: {response.status_code}, {response.text}")
         return None
 
 # Function to handle rate limits dynamically
 def handle_rate_limit(response):
-    print("Rate limit reached. Checking headers for wait time...")
+    print("⚠️ Rate limit reached. Checking headers for wait time...")
     reset_time = int(response.headers.get("x-rate-limit-reset", time.time()))  # Get reset time
-    sleep_time = max(reset_time - int(time.time()), 60)  # Wait until reset (default 60s if unknown)
-    print(f"Sleeping for {sleep_time} seconds to avoid being blocked...")
+    sleep_time = max(reset_time - int(time.time()), 1800)  # Wait until reset (default 30 min)
+    print(f"⏳ Sleeping for {sleep_time} seconds to avoid being blocked...")
     time.sleep(sleep_time)
 
 # Function to send a message to Discord
@@ -54,9 +57,9 @@ def send_to_discord(message):
     response = requests.post(DISCORD_WEBHOOK_URL, json=payload)
 
     if response.status_code == 204:
-        print("Successfully sent message to Discord.")
+        print("✅ Successfully sent message to Discord.")
     else:
-        print(f"Failed to send message to Discord: {response.status_code}, {response.text}")
+        print(f"❌ Failed to send message to Discord: {response.status_code}, {response.text}")
 
 # Function to track tweets from multiple accounts
 def track_tweets():
@@ -81,9 +84,9 @@ def track_tweets():
                 message = f"🟢 New tweet from {username}: {tweet_text}\n🔗 Link: https://twitter.com/{username}/status/{tweet_id}"
                 send_to_discord(message)
 
-# Main loop to track tweets every 5 minutes
+# Main loop to track tweets every 30 minutes
 if __name__ == "__main__":
     while True:
         track_tweets()
-        print("✅ Waiting 5 minutes before checking again...")
-        time.sleep(300)  # Wait for 5 minutes
+        print("✅ Waiting 30 minutes before checking again...")
+        time.sleep(1800)  # Wait for 30 minutes
